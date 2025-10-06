@@ -2,6 +2,7 @@
 name: Publish to PyPI
 
 on:
+  workflow_dispatch:
   push:
     tags:
       - 'v*.*.*'   # e.g. v1.2.3
@@ -19,7 +20,7 @@ jobs:
       - name: Verify tag matches pyproject.toml version
         run: |
           TAG="${GITHUB_REF#refs/tags/v}"
-          FILE_VER=$(python -c "import tomli;print(tomli.load(open('pyproject.toml'))['project']['version'])")
+          FILE_VER=$(python -c "import tomli;print(tomli.load(open('pyproject.toml', 'r', encoding='utf-8'))['project']['version'])")
           [ "$TAG" = "$FILE_VER" ] || { echo "Tag $TAG != pyproject $FILE_VER"; exit 1; }
       - name: Build dists
         run: python -m build
