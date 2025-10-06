@@ -103,27 +103,61 @@ jobs:
         env:
           TAG: ${{ needs.build.outputs.tag }}
         run: |
-          import os, re, sys, pathlib
-          ver = os.environ["TAG"]
-          chlog = pathlib.Path("CHANGELOG.md")
-          if not chlog.exists():
+          import os, sys, re, pathlib
+
+          ver = os.environ["TAG"]                          # e.g., 1.0.2 (no leading 'v')
+          chlog_path = pathlib.Path("CHANGELOG.md")
+          if not chlog_path.exists():
               print("CHANGELOG.md not found", file=sys.stderr)
               sys.exit(2)
-          text = chlog.read_text(encoding="utf-8")
-          # Matches "## [1.2.3] - 2025-10-06", "## [1.2.3]", "## 1.2.3", or "## v1.2.3"
-          pat = re.compile(rf"^##\s*\[?v?{re.escape(ver)}\]?(?:\s*-\s*.+)?\s*$", re.MULTILINE)
-          m = pat.search(text)
-          if not m:
+
+          lines = chlog_path.read_text(encoding="utf-8").splitlines()
+
+          # Normalize heading lines and find the exact "## ..." that matches this version
+          # Supports: "## 1.0.2", "## v1.0.2", "## [1.0.2]", "## [1.0.2] - 2025-10-06"
+          def is_heading_for_version(s: str) -> bool:
+              s = s.strip()
+              if not s.startswith("##"):
+                  return False
+              s = s[2:].strip()            # drop leading '##'
+              s = s.strip("[]")            # allow [1.0.2]
+              s = re.sub(r"\s*-\s*.*$", "", s)  # drop trailing " - date"
+              s = s.lstrip("v")            # allow v1.0.2
+              return s == ver
+
+          start_idx = None
+          for i, line in enumerate(lines):
+              if is_heading_for_version(line):
+                  start_idx = i + 1        # start AFTER the heading line
+                  break
+
+          if start_idx is None:
               print(f"No changelog section found for {ver}", file=sys.stderr)
               sys.exit(3)
-          start = m.end()
-          m2 = re.search(r"^##\s", text[start:], re.MULTILINE)
-          section = text[start:] if not m2 else text[start:start+m2.start()]
-          section = section.strip()
-          only_links = re.fullmatch(r"(?:\[[^\]]+\]:\s*\S+\s*)*", section or "", re.MULTILINE)
+
+          # Collect until the next "## " heading (any version)
+          end_idx = len(lines)
+          for j in range(start_idx, len(lines)):
+              if lines[j].lstrip().startswith("## "):
+                  end_idx = j
+                  break
+
+          section_lines = lines[start_idx:end_idx]
+
+          # Trim leading/trailing blank lines but KEEP all bullets, including the first one
+          while section_lines and not section_lines[0].strip():
+              section_lines.pop(0)
+          while section_lines and not section_lines[-1].strip():
+              section_lines.pop()
+
+          section = "\n".join(section_lines)
+
+          # Consider invalid if empty or only reference-style link defs
+          only_links = re.fullmatch(r"(?:\[[^\]]+\]:\s*\S+\s*(?:\n|$))*", section or "", flags=re.MULTILINE)
           if not section or only_links:
               print(f"Changelog section for {ver} is empty", file=sys.stderr)
               sys.exit(4)
+
           pathlib.Path("RELEASE_NOTES.md").write_text(section, encoding="utf-8")
 
       - name: Upload notes
