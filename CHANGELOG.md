@@ -3,6 +3,7 @@
 ## 1.0.2
 
 - Fix license
+- Drop Python 3.8 support
 
 ## 1.0.1
 
