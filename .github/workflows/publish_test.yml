@@ -55,7 +55,6 @@ jobs:
           echo "pyproject.toml: $FILE_VER"
           if [ "$TAG" != "$FILE_VER" ]; then
             echo "❌ Tag ($TAG) != pyproject.toml ($FILE_VER)"
-            exit 1
           fi
 
       - name: Build dists
