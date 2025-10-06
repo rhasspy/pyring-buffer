@@ -2,7 +2,7 @@
 name: Release Dry Run (PyPI + GitHub)
 
 on:
-  workflow_dispatch:
+  workflow_dispatch: {}
 
 jobs:
   build:
@@ -12,6 +12,8 @@ jobs:
       file_ver: ${{ steps.read_ver.outputs.file_ver }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # IMPORTANT: get full history + tags
 
       - uses: actions/setup-python@v5
         with:
@@ -20,15 +22,35 @@ jobs:
       - name: Install build tools
         run: pip install build tomli
 
-      - name: Extract tag
+      - name: Extract latest version tag (semver)
         id: tag
         shell: bash
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          # allow tags like v1.2.3 or 1.2.3; strip optional leading v for comparison
-          TAG_STRIPPED="${TAG#v}"
-          echo "tag=$TAG_STRIPPED" >> "$GITHUB_OUTPUT"
-          echo "Detected tag: $TAG_STRIPPED"
+          # Ensure we have tags (checkout with fetch-depth: 0 usually gets them)
+          git fetch --tags --force --quiet
+
+          # List tags in descending semantic order. v-prefixed and bare tags supported.
+          # Filter to tags that look like v1.2.3 or 1.2.3 (3-part semver).
+          mapfile -t TAGS < <(git tag --list --sort=-v:refname)
+          LATEST=""
+          for t in "${TAGS[@]}"; do
+            if [[ "$t" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              LATEST="$t"
+              break
+            fi
+          done
+
+          if [ -z "$LATEST" ]; then
+            echo "❌ No semver-like tags found (expected tags like v1.2.3 or 1.2.3)" >&2
+            exit 1
+          fi
+
+          # Strip leading 'v' for comparison to pyproject version
+          STRIPPED="${LATEST#v}"
+
+          echo "Found latest tag: $LATEST (stripped: $STRIPPED)"
+          echo "raw_tag=$LATEST" >> "$GITHUB_OUTPUT"
+          echo "tag=$STRIPPED" >> "$GITHUB_OUTPUT"
 
       - name: Read version from pyproject.toml
         id: read_ver
@@ -36,7 +58,7 @@ jobs:
         run: |
           import os
           try:
-              import tomllib as toml   # Py3.11+
+              import tomllib as toml   # Python 3.11+
           except Exception:
               import tomli as toml     # fallback
           with open("pyproject.toml","rb") as f:
@@ -46,15 +68,16 @@ jobs:
               fh.write(f"file_ver={ver}\n")
           print(f"pyproject.toml version: {ver}")
 
-      - name: Verify tag matches pyproject.toml version
+      - name: Verify latest tag matches pyproject.toml version
         shell: bash
         run: |
           TAG="${{ steps.tag.outputs.tag }}"
           FILE_VER="${{ steps.read_ver.outputs.file_ver }}"
-          echo "Tag: $TAG"
-          echo "pyproject.toml: $FILE_VER"
+          echo "Latest tag (stripped): $TAG"
+          echo "pyproject.toml:        $FILE_VER"
           if [ "$TAG" != "$FILE_VER" ]; then
-            echo "❌ Tag ($TAG) != pyproject.toml ($FILE_VER)"
+            echo "❌ Latest tag ($TAG) != pyproject.toml ($FILE_VER)"
+            exit 1
           fi
 
       - name: Build dists
@@ -71,6 +94,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Extract release notes (fail if missing)
         id: notes
         shell: python
@@ -99,6 +125,7 @@ jobs:
               print(f"Changelog section for {ver} is empty", file=sys.stderr)
               sys.exit(4)
           pathlib.Path("RELEASE_NOTES.md").write_text(section, encoding="utf-8")
+
       - name: Upload notes
         uses: actions/upload-artifact@v4
         with:
@@ -120,12 +147,13 @@ jobs:
       - name: Print dry-run summary
         run: |
           echo "✅ Would publish to PyPI via Trusted Publisher (OIDC)"
-          echo "   Tag: ${{ needs.build.outputs.tag }}"
-          echo "   Version: ${{ needs.build.outputs.file_ver }}"
+          echo "   Latest tag (raw): ${{ steps.fetch_latest_tag.outputs.raw_tag }}"
+          echo "   Tag (stripped):   ${{ needs.build.outputs.tag }}"
+          echo "   Version:          ${{ needs.build.outputs.file_ver }}"
           echo "   Dist files:"
           ls -lh dist
           echo
-          echo "✅ Would create GitHub Release for tag ${{ github.ref_name }}"
+          echo "✅ Would create GitHub Release for tag ${{ steps.fetch_latest_tag.outputs.raw_tag }}"
           echo "   Using changelog notes from RELEASE_NOTES.md:"
           echo "---------------------------------------------"
           cat RELEASE_NOTES.md
