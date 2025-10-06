@@ -37,3 +37,14 @@ include-package-data = true
 [tool.setuptools.packages.find]
 include = ["pyring_buffer"]
 exclude = ["tests", "tests.*"]
+
+[project.optional-dependencies]
+dev = [
+    "black==22.12.0",
+    "flake8==6.0.0",
+    "isort==5.11.3",
+    "mypy==0.991",
+    "pylint==2.15.9",
+    "pytest==7.4.4",
+    "build==1.2.2",
+]
