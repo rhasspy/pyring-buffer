@@ -17,7 +17,7 @@ jobs:
 
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.x"
+          python-version: "3.13"
 
       - name: Install build tools
         run: pip install build tomli
@@ -46,7 +46,7 @@ jobs:
           tag = ref[len(prefix):]
 
           if tag != ver:
-              print(f"❌ Tag ({tag}) != pyproject.toml ({ver})", file=sys.stderr)
+              print(f"Tag ({tag}) != pyproject.toml ({ver})", file=sys.stderr)
               sys.exit(1)
 
           # Expose outputs
@@ -54,7 +54,7 @@ jobs:
               fh.write(f"tag={tag}\n")
               fh.write(f"file_ver={ver}\n")
 
-          print(f"✅ Version OK: tag={tag} matches pyproject.toml={ver}")
+          print(f"Version OK: tag={tag} matches pyproject.toml={ver}")
 
       - name: Build dists
         run: python -m build

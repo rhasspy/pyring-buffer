@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.0
+
+- Add `clear()` method
+- Refactor to work with `bytearray` and `memoryview`
+
 ## 1.0.2
 
 - Fix license

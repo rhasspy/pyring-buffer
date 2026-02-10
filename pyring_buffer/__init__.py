@@ -1,4 +1,5 @@
 """Implementation of a ring buffer using bytearray."""
+from typing import Union
 
 
 class RingBuffer:
@@ -28,30 +29,78 @@ class RingBuffer:
         """Return the length of data stored in the buffer."""
         return self._length
 
-    def put(self, data: bytes) -> None:
+    def clear(self) -> None:
+        """Logically clear the buffer (does not overwrite underlying bytes)."""
+        self._pos = 0
+        self._length = 0
+
+    def put(self, data: Union[bytes, bytearray, memoryview]) -> None:
         """Put a chunk of data into the buffer, possibly wrapping around."""
-        data_len = len(data)
-        new_pos = self._pos + data_len
-        if new_pos >= self._maxlen:
-            # Split into two chunks
-            num_bytes_1 = self._maxlen - self._pos
-            num_bytes_2 = new_pos - self._maxlen
+        mv = data if isinstance(data, memoryview) else memoryview(data)
+        if mv.ndim != 1:
+            mv = mv.cast("B")
+        data_len = mv.nbytes
+        if data_len == 0:
+            return
 
-            self._buffer[self._pos : self._maxlen] = data[:num_bytes_1]
-            self._buffer[:num_bytes_2] = data[num_bytes_1:]
-            new_pos = new_pos - self._maxlen
+        buf = self._buffer
+        maxlen = self._maxlen
+        pos = self._pos
+        length = self._length
+
+        # If incoming data is larger than the buffer:
+        # - keep only the last maxlen bytes
+        # - advance pos by data_len % maxlen
+        if data_len >= maxlen:
+            tail = mv[data_len - maxlen :]  # last maxlen bytes
+            pos = data_len % maxlen  # next write position
+
+            if pos == 0:
+                buf[:] = tail
+            else:
+                # Write tail so that chronological order is preserved when reading
+                # from pos (oldest) to end then start to pos.
+                n1 = maxlen - pos
+                buf[pos:] = tail[:n1]
+                buf[:pos] = tail[n1:]
+
+            self._pos = pos
+            self._length = maxlen
+            return
+
+        end = pos + data_len
+        if end <= maxlen:
+            buf[pos:end] = mv
+            pos = end
+            if pos == maxlen:
+                pos = 0
         else:
-            # Entire chunk fits at current position
-            self._buffer[self._pos : self._pos + data_len] = data
+            n1 = maxlen - pos
+            buf[pos:maxlen] = mv[:n1]
+            n2 = data_len - n1
+            buf[0:n2] = mv[n1:]
+            pos = n2
 
-        self._pos = new_pos
-        self._length = min(self._maxlen, self._length + data_len)
+        self._pos = pos
+        new_len = length + data_len
+        self._length = maxlen if new_len >= maxlen else new_len
 
     def getvalue(self) -> bytes:
-        """Get bytes written to the buffer."""
-        if (self._pos + self._length) <= self._maxlen:
-            # Single chunk
-            return bytes(self._buffer[: self._length])
+        """Return the bytes in chronological order (oldest -> newest)."""
+        length = self._length
+        if length == 0:
+            return b""
 
-        # Two chunks
-        return bytes(self._buffer[self._pos :] + self._buffer[: self._pos])
+        buf = self._buffer
+        maxlen = self._maxlen
+
+        # If not full, the valid data is just the prefix [0:length].
+        if length < maxlen:
+            return bytes(buf[:length])
+
+        # Full: oldest data starts at _pos.
+        pos = self._pos
+        if pos == 0:
+            return bytes(buf)  # already in order
+
+        return bytes(buf[pos:] + buf[:pos])

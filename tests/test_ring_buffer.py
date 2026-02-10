@@ -36,3 +36,25 @@ def test_ring_buffer_put_too_large() -> None:
     assert len(rb) == 10
     assert rb.pos == 2
     assert rb.getvalue() == bytes([3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+
+def test_ring_buffer_clear() -> None:
+    rb = RingBuffer(5)
+
+    # Fill and wrap
+    rb.put(b"abc")
+    rb.put(b"de")
+    assert len(rb) == 5
+    assert rb.getvalue() == b"abcde"
+
+    # Clear should reset logical state
+    rb.clear()
+    assert len(rb) == 0
+    assert rb.pos == 0
+    assert rb.getvalue() == b""
+
+    # Buffer should be reusable after clear
+    rb.put(b"xy")
+    assert len(rb) == 2
+    assert rb.pos == 2
+    assert rb.getvalue() == b"xy"
